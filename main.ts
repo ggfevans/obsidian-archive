@@ -165,6 +165,42 @@ export default class SimpleArchiver extends Plugin {
 		return file.path.startsWith(this.settings.archiveFolder);
 	}
 
+	private generateUniqueArchivePath(
+		file: TAbstractFile,
+		destinationPath: string
+	): string {
+		const fileName = file.name;
+		const lastDotIndex = fileName.lastIndexOf(".");
+		const baseName =
+			lastDotIndex > 0 ? fileName.substring(0, lastDotIndex) : fileName;
+		const extension =
+			lastDotIndex > 0 ? fileName.substring(lastDotIndex) : "";
+
+		// Generate timestamp-based suffix
+		const now = new Date();
+		const timestamp = now
+			.toISOString()
+			.replace(/[-:]/g, "")
+			.replace(/\..+/, "")
+			.replace("T", "-")
+			.substring(0, 15); // YYYYMMDD-HHMMSS
+
+		let counter = 0;
+		let uniquePath = normalizePath(
+			`${destinationPath}/${baseName}-${timestamp}${extension}`
+		);
+
+		// Handle edge case: multiple renames in same second
+		while (this.app.vault.getAbstractFileByPath(uniquePath) != null) {
+			counter++;
+			uniquePath = normalizePath(
+				`${destinationPath}/${baseName}-${timestamp}-${counter}${extension}`
+			);
+		}
+
+		return uniquePath;
+	}
+
 	private async archiveFile(file: TAbstractFile): Promise<ArchiveResult> {
 		if (this.isFileArchived(file)) {
 			return { success: false, message: "Item is already archived" };
@@ -178,12 +214,12 @@ export default class SimpleArchiver extends Plugin {
 			this.app.vault.getAbstractFileByPath(destinationFilePath);
 
 		if (existingItem != null) {
-			// Same item exists in archive, prompt to replace
+			// Same item exists in archive, prompt to replace or rename
 			return new Promise<ArchiveResult>((resolve) => {
 				const prompt = new SimpleArchiverPromptModal(
 					this.app,
-					"Replace archived item?",
-					`An item called "${file.name}" already exists in the destination folder in the archive. Would you like to replace it?`,
+					"File exists in archive",
+					`An item called "${file.name}" already exists in the destination folder in the archive. Replace, rename, or cancel?`,
 					"Replace",
 					"Cancel",
 					async () => {
@@ -197,6 +233,38 @@ export default class SimpleArchiver extends Plugin {
 							success: false,
 							message: "Archive operation cancelled",
 						});
+					},
+					"Rename",
+					async () => {
+						const destinationPath = normalizePath(
+							`${this.settings.archiveFolder}/${file.parent?.path}`
+						);
+
+						const destinationFolder =
+							this.app.vault.getFolderByPath(destinationPath);
+
+						if (destinationFolder == null) {
+							await this.app.vault.createFolder(destinationPath);
+						}
+
+						const uniquePath = this.generateUniqueArchivePath(
+							file,
+							destinationPath
+						);
+
+						try {
+							await this.app.fileManager.renameFile(file, uniquePath);
+							const newName = uniquePath.split("/").pop() || file.name;
+							resolve({
+								success: true,
+								message: `${file.name} archived as ${newName}`,
+							});
+						} catch (error) {
+							resolve({
+								success: false,
+								message: `Unable to archive ${file.name}: ${error}`,
+							});
+						}
 					}
 				);
 				prompt.open();
@@ -359,7 +427,9 @@ class SimpleArchiverPromptModal extends Modal {
 		yesButtonText: string,
 		noButtonText: string,
 		callback: () => Promise<void>,
-		cancelCallback: () => Promise<void>
+		cancelCallback: () => Promise<void>,
+		middleButtonText?: string,
+		middleCallback?: () => Promise<void>
 	) {
 		super(app);
 
@@ -367,7 +437,7 @@ class SimpleArchiverPromptModal extends Modal {
 
 		this.setContent(message);
 
-		new Setting(this.contentEl)
+		const setting = new Setting(this.contentEl)
 			.addButton((btn) =>
 				btn
 					.setButtonText(yesButtonText)
@@ -376,13 +446,24 @@ class SimpleArchiverPromptModal extends Modal {
 						callback();
 						this.close();
 					})
-			)
-			.addButton((btn) =>
-				btn.setButtonText(noButtonText).onClick(() => {
-					cancelCallback();
+			);
+
+		// Add optional middle button if provided
+		if (middleButtonText && middleCallback) {
+			setting.addButton((btn) =>
+				btn.setButtonText(middleButtonText).onClick(() => {
+					middleCallback();
 					this.close();
 				})
 			);
+		}
+
+		setting.addButton((btn) =>
+			btn.setButtonText(noButtonText).onClick(() => {
+				cancelCallback();
+				this.close();
+			})
+		);
 	}
 }
 
