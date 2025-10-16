@@ -268,12 +268,12 @@ export default class SimpleArchiver extends Plugin {
 				this.app.vault.getFolderByPath(originalParentPath);
 
 			if (originalFolder == null) {
-				await this.app.vault.createFolder(originalParentPath);
+				await this.app.vault.createFolder(normalizePath(originalParentPath));
 			}
 		}
 
 		try {
-			await this.app.fileManager.renameFile(file, originalPath);
+			await this.app.fileManager.renameFile(file, normalizePath(originalPath));
 			return {
 				success: true,
 				message: `${file.name} unarchived successfully`,
