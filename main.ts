@@ -286,8 +286,9 @@ export default class SimpleArchiver extends Plugin {
 									destinationPath
 								);
 
+								const originalName = file.name;
+
 								try {
-									const originalName = file.name;
 									await this.app.fileManager.renameFile(file, uniquePath);
 									const newName = uniquePath.split("/").pop() || file.name;
 									resolve({
@@ -297,7 +298,7 @@ export default class SimpleArchiver extends Plugin {
 								} catch (error) {
 									resolve({
 										success: false,
-										message: `Unable to archive ${file.name}: ${error}`,
+										message: `Unable to archive ${originalName}: ${error}`,
 									});
 								}
 						  }
